@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://clipharbor.local/schemas/v1/DownloadHistory.json",
+  "title": "DownloadHistory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "taskId",
+    "sourceUrl",
+    "sourceId",
+    "title",
+    "filename",
+    "destDir",
+    "filePath",
+    "formatId",
+    "thumbnailUrl",
+    "status",
+    "phase",
+    "bytesDownloaded",
+    "bytesTotal",
+    "error",
+    "retries",
+    "createdAt",
+    "updatedAt",
+    "completedAt",
+    "avgSpeedBps",
+    "peakSpeedBps",
+    "sha256",
+    "verified"
+  ],
+  "properties": {
+    "taskId": {
+      "type": "string"
+    },
+    "sourceUrl": {
+      "type": "string"
+    },
+    "sourceId": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "filename": {
+      "type": "string"
+    },
+    "destDir": {
+      "type": "string"
+    },
+    "filePath": {
+      "type": "string"
+    },
+    "formatId": {
+      "type": "string"
+    },
+    "thumbnailUrl": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "downloading",
+        "paused",
+        "retry_wait",
+        "merging",
+        "zipping",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "idle",
+        "network",
+        "retry_wait",
+        "merge",
+        "zip",
+        "done"
+      ]
+    },
+    "bytesDownloaded": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bytesTotal": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error": {
+      "type": "string"
+    },
+    "retries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updatedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "completedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "avgSpeedBps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "peakSpeedBps": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  }
+}

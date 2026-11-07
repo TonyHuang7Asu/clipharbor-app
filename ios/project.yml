@@ -1,0 +1,57 @@
+# XcodeGen 工程定义：在 macOS 上 `brew install xcodegen && xcodegen generate` 即可生成 Xcode 工程。
+# Bundle ID 必须保持稳定（数据保留关键，见 Docs/BUILD-AND-SIGNING.md）。
+name: ClipHarbor
+options:
+  bundleIdPrefix: com.clipharbor
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1"   # iPhone 优先（单手操作布局）
+targets:
+  ClipHarbor:
+    type: application
+    platform: iOS
+    sources:
+      - path: ClipHarbor
+    info:
+      path: ClipHarbor/Support/Info.plist
+      properties:
+        CFBundleDisplayName: ClipHarbor
+        CFBundleShortVersionString: 0.1.0
+        UILaunchScreen: {}
+        # “文件”App 可见 + 就地编辑（导出媒体到文件 App 的基础）
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false   # 仅允许 ATS 合规的 https（明文 http 直链需用户在设置中显式放行例外，Phase 2 提供开关）
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clipharbor.app
+        CODE_SIGN_STYLE: Automatic
+  ClipHarborTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ClipHarbor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clipharbor.app.tests
+schemes:
+  ClipHarbor:
+    build:
+      targets:
+        ClipHarbor: all
+        ClipHarborTests: [test]
+    test:
+      targets:
+        - ClipHarborTests

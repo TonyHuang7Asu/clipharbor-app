@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# 本地运行数据（绝不提交用户历史数据库）
+*.db
+*.db-wal
+*.db-shm
+*.clipharbor.part
+*.clipharbor.seg
+*.clipharbor.zip.part
+
+# iOS / macOS
+ios/build/
+ios/ClipHarbor.xcodeproj/
+xcuserdata/
+DerivedData/
+*.ipa
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+
+# 其他
+.mimosa/
+.DS_Store

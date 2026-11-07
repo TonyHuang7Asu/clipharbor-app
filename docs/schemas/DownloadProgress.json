@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://clipharbor.local/schemas/v1/DownloadProgress.json",
+  "title": "DownloadProgress",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "taskId",
+    "status",
+    "phase",
+    "bytesDownloaded",
+    "bytesTotal",
+    "speedBps",
+    "avgSpeedBps",
+    "peakSpeedBps",
+    "etaSeconds",
+    "error",
+    "updatedAt"
+  ],
+  "properties": {
+    "taskId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "downloading",
+        "paused",
+        "retry_wait",
+        "merging",
+        "zipping",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "idle",
+        "network",
+        "retry_wait",
+        "merge",
+        "zip",
+        "done"
+      ]
+    },
+    "bytesDownloaded": {
+      "type": "integer"
+    },
+    "bytesTotal": {
+      "type": "integer"
+    },
+    "speedBps": {
+      "type": "number"
+    },
+    "avgSpeedBps": {
+      "type": "number"
+    },
+    "peakSpeedBps": {
+      "type": "number"
+    },
+    "etaSeconds": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "error": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

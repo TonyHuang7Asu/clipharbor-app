@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://clipharbor.local/schemas/v1/MediaInfo.json",
+  "title": "MediaInfo",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sourceUrl",
+    "sourceId",
+    "title",
+    "uploader",
+    "durationSeconds",
+    "thumbnailUrl",
+    "isPlaylist",
+    "entries",
+    "formats"
+  ],
+  "properties": {
+    "sourceUrl": {
+      "type": "string"
+    },
+    "sourceId": {
+      "type": "string"
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "uploader": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "durationSeconds": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "thumbnailUrl": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "isPlaylist": {
+      "type": "boolean"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "formats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}
