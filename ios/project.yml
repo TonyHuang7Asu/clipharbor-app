@@ -27,6 +27,8 @@ targets:
         # “文件”App 可见 + 就地编辑（导出媒体到文件 App 的基础）
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # 「存到相册」按钮：仅新增权限，App 不能读取或删除你已有的照片
+        NSPhotoLibraryAddUsageDescription: 用于把下载完成的视频保存到你的相册
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSAppTransportSecurity:

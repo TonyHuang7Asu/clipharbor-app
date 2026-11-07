@@ -249,10 +249,12 @@ struct QueueView: View {
     }
 }
 
-/// 历史记录页：缩略图 + 搜索 + 文件存在性 + 复制链接/分享文件。
+/// 历史记录页：缩略图 + 搜索 + 文件存在性 + 存相册/复制链接/分享文件。
 struct HistoryView: View {
     @ObservedObject private var engine = BackgroundDownloadEngine.shared
     @State private var query = ""
+    @State private var photoMessage: String?
+    @State private var showPhotoAlert = false
 
     var body: some View {
         NavigationStack {
@@ -260,6 +262,14 @@ struct HistoryView: View {
                 ForEach(engine.searchHistory(query)) { task in
                     HistoryRowView(task: task, fileExists: engine.fileExists(task))
                         .contextMenu {
+                            if task.status == .completed, engine.fileExists(task),
+                               PhotoSaver.isVideo(path: task.filePath) {
+                                Button {
+                                    saveToPhotos(task)
+                                } label: {
+                                    Label("存到相册", systemImage: "photo.badge.arrow.down")
+                                }
+                            }
                             Button {
                                 UIPasteboard.general.string = task.sourceURL
                             } label: {
@@ -283,6 +293,22 @@ struct HistoryView: View {
             .searchable(text: $query, prompt: "搜索标题 / URL / 文件名")
             .navigationTitle("历史")
             .refreshable { _ = engine.historyRecords(query: query) }
+            .alert("存到相册", isPresented: $showPhotoAlert) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(photoMessage ?? "")
+            }
+        }
+    }
+
+    private func saveToPhotos(_ task: DownloadTask) {
+        Task { @MainActor in
+            do {
+                photoMessage = try await PhotoSaver.saveVideo(at: task.filePath)
+            } catch {
+                photoMessage = "失败：\(error.localizedDescription)"
+            }
+            showPhotoAlert = true
         }
     }
 }
