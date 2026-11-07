@@ -1,20 +1,42 @@
-# iOS 安装路径决策矩阵（iOS 26 实况，2026-10 检索）
+# iOS 安装路径决策矩阵（iOS 26 实况，2026-11 更新）
 
-你的情况：iPhone 为 iOS 26，SideStore 装好后打不开 → SideStore 列为备选。
-先说结论：**iOS 26 上没有"永久免费签名"**（TrollStore 已确认不可用），
-现实选项按稳定性排序如下，其中"免签名路径"完全绕开签名问题，建议与签名路径并行使用。
+你的情况：iPhone 为 iOS 26，SideStore 装好后打不开 → **已定路线：云构建 IPA + SideStore 每周自动续签**（排障见下），免签名路径作为并行备选。
 
-## 一、免签名路径（iOS 26 直接可用，无 7 天续签烦恼）★建议优先
+## 〇、IPA 云构建（新增，消除"无 Mac"依赖）★
+
+1. 把仓库推到 GitHub（公共仓库，Actions 免费跑 macOS runner）：
+   ```bash
+   cd ClipHarbor
+   git remote add origin https://github.com/<你的用户名>/clipharbor.git
+   git push -u origin main
+   ```
+2. 推送后自动触发 `Build iOS IPA`（也可在 Actions 页手动触发），
+   产物：`ClipHarbor-unsigned.ipa`（未签名，30 天可下载）。
+3. iPhone 上用 SideStore → "＋" 导入该 IPA → 用你的 Apple ID 签名安装。
+   **SideStore 只负责签名安装，构建永远不依赖 Mac。**
+4. 之后每次 iOS 代码更新：`git push` → 新 IPA → SideStore 重新导入即"更新"，
+   Bundle ID 不变，数据保留。
+
+## 一、SideStore 打不开的排查（按命中率排序）
+
+1. **开发者模式未开启**（最常见）：设置 → 隐私与安全性 → 开发者模式 → 开 → 重启。
+2. **7 天证书过期**：应用过期直接打不开；SideStore 内长按 → Refresh。
+3. **证书未信任**：设置 → 通用 → VPN与设备管理 → 信任开发者证书。
+4. **Anisette 失效**（-80045）：更换 Anisette 源或自建。
+5. **3 App / 10 App ID 上限**：清理或 LiveContainer。
+6. 配对文件过期：电脑重新生成（AltServer Windows / jitterbugpair）。
+
+## 二、免签名路径（并行备选，无需任何签名）
 
 这些是 App Store 现成应用或系统能力，**不需要安装任何 IPA、不占用签名名额**：
 
 | 路径 | 能力 | 局限 |
 | --- | --- | --- |
-| **快捷指令 + 自建 cobalt**（电脑上 Docker 10 分钟部署） | 系统级下载到"文件"App；手机与电脑同公网 IP 时直连 YouTube CDN，速度快 | 只有"链接→单文件"，无队列/历史/批量 |
-| **a-Shell**（免费 App Store 应用） | 手机本地跑 yt-dlp（pip install），完全独立、不依赖电脑 | 命令行；无 ffmpeg → 只能下预合并格式（≈≤720p）；yt-dlp 需手动更新 |
+| **快捷指令 + 自建 cobalt**（已部署：`http://192.168.0.105:9000`） | 系统级下载到"文件"App；解析已在你的电脑实测成功 | 只有"链接→单文件"，无队列/历史 |
+| **a-Shell**（免费 App Store 应用） | 手机本地跑 yt-dlp（pip install），完全独立 | 命令行；无 ffmpeg → ≈≤720p；需手动更新 |
 | **Documents by Readdle** 等带浏览器的下载器 | 简单直链/网页下载 | 对 YouTube 的解析依赖厂商服务，随时可能失效 |
 
-这三条可与 ClipHarbor Windows 完美互补：电脑负责管理和高速大文件，手机负责轻量与应急。
+快捷指令搭建步骤见 `SHORTCUTS-COBALT.md`。
 
 ## 二、修复 SideStore（备选，值得再试一次）
 
