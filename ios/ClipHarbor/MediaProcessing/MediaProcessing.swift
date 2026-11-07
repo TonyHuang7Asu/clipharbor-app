@@ -7,12 +7,14 @@ enum MediaVerifier {
     static func isPlayable(at path: String) async -> (playable: Bool, detail: String) {
         let asset = AVURLAsset(url: URL(fileURLWithPath: path))
         do {
-            let tracks = try await asset.loadTracks(withMediaType: .any)
+            let video = try await asset.loadTracks(withMediaType: .video)
+            let audio = try await asset.loadTracks(withMediaType: .audio)
+            let trackCount = video.count + audio.count
             let duration = try await asset.load(.duration)
-            if tracks.isEmpty {
+            if trackCount == 0 {
                 return (false, "未发现任何音视频轨道")
             }
-            return (true, "轨道 \(tracks.count) 条, 时长 \(duration.seconds)s")
+            return (true, "轨道 \(trackCount) 条, 时长 \(duration.seconds)s")
         } catch {
             return (false, "无法读取: \(error.localizedDescription)")
         }

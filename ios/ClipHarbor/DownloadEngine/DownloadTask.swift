@@ -35,6 +35,9 @@ struct DownloadTask: Identifiable, Codable, Equatable {
     var filePath: String = ""
     var formatID: String = ""
     var thumbnailURL: String?
+    /// 实际下载地址：cobalt 等解析器的时效隧道链接。sourceURL 始终保存原始链接，
+    /// 便于去重/历史展示；重试时若本字段过期可由 sourceURL 重新解析。
+    var downloadURL: String = ""
     var status: TaskStatus = .queued
     var phase: TaskPhase = .idle
     var bytesDownloaded: Int64 = 0
@@ -58,6 +61,7 @@ struct DownloadTask: Identifiable, Codable, Equatable {
         case title, filename, destDir, filePath
         case formatID = "formatId"
         case thumbnailURL = "thumbnailUrl"
+        case downloadURL = "downloadUrl"
         case status, phase
         case bytesDownloaded, bytesTotal, error, retries
         case createdAt, updatedAt, completedAt

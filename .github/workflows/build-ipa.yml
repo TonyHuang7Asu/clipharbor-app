@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14          # 免费 macOS runner（公共仓库）
+    runs-on: macos-15          # 与 videoloader 线路一致
     steps:
       - uses: actions/checkout@v4
 
@@ -23,9 +23,12 @@ jobs:
         working-directory: ios
         continue-on-error: true
         run: |
+          SIM=$(xcrun simctl list devices available |
+                grep -m1 -oE 'iPhone [0-9]+ ' | tr -d ' ' || true)
+          echo "Simulator: $SIM"
           xcodebuild test \
             -project ClipHarbor.xcodeproj -scheme ClipHarbor \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination "platform=iOS Simulator,name=${SIM:-iPhone 16}" \
             CODE_SIGNING_ALLOWED=NO | tail -40
 
       - name: Archive (unsigned IPA)

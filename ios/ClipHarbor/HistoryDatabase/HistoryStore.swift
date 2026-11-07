@@ -35,6 +35,7 @@ final class HistoryStore {
             file_path TEXT NOT NULL DEFAULT '',
             format_id TEXT NOT NULL DEFAULT '',
             thumbnail_url TEXT NOT NULL DEFAULT '',
+            download_url TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'queued',
             phase TEXT NOT NULL DEFAULT 'idle',
             bytes_downloaded INTEGER NOT NULL DEFAULT 0,
@@ -55,16 +56,18 @@ final class HistoryStore {
         try db.execute("CREATE INDEX IF NOT EXISTS idx_downloads_url ON downloads(url)")
         // 迁移策略：schema_version 递增时在此追加 ALTER TABLE ... ADD COLUMN，
         // 绝不 DROP/清空 downloads 表（用户历史不可丢失）。
+        // 增列升级示例（download_url 列加入前的旧库）：
+        try? db.execute("ALTER TABLE downloads ADD COLUMN download_url TEXT NOT NULL DEFAULT ''")
     }
 
     // MARK: - CRUD
 
     func upsert(_ task: DownloadTask) throws {
         try db.run(
-            "INSERT OR REPLACE INTO downloads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO downloads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [.text(task.id), .text(task.sourceURL), .text(task.sourceID), .text(task.title),
              .text(task.filename), .text(task.destDir), .text(task.filePath),
-             .text(task.formatID), .text(task.thumbnailURL ?? ""),
+             .text(task.formatID), .text(task.thumbnailURL ?? ""), .text(task.downloadURL),
              .text(task.status.rawValue), .text(task.phase.rawValue),
              .int(task.bytesDownloaded), .int(task.bytesTotal), .text(task.error),
              .int(Int64(task.retries)), .real(task.createdAt.timeIntervalSince1970),
@@ -80,7 +83,7 @@ final class HistoryStore {
         let allowed = ["status", "phase", "bytes_downloaded", "bytes_total", "error",
                        "file_path", "filename", "updated_at", "completed_at",
                        "avg_speed_bps", "peak_speed_bps", "sha256", "verified",
-                       "session_task_id", "retries"]
+                       "session_task_id", "retries", "download_url"]
         let names = Array(fields.keys)
         guard names.allSatisfy({ allowed.contains($0) }), !names.isEmpty else {
             throw NSError(domain: "ClipHarbor.History", code: 1,
@@ -129,11 +132,22 @@ final class HistoryStore {
     }
 
     /// 崩溃/退出恢复：中断任务转为可续传的暂停态。
-    func recoverInterrupted() throws -> Int {
-        try db.run("""
-        UPDATE downloads SET status = 'paused', phase = 'idle',
-        error = '应用退出时中断，可续传'
+    /// exceptSessionIds：本次启动已成功重新关联的后台会话任务仍在运行，不误标。
+    func recoverInterrupted(exceptSessionIds: Set<Int64> = []) throws -> Int {
+        if exceptSessionIds.isEmpty {
+            return try db.run("""
+            UPDATE downloads SET status = 'paused', phase = 'idle',
+            error = '应用退出时中断，可续传'
+            WHERE status IN ('downloading','retry_wait')
+            """)
+        }
+        let placeholders = Array(repeating: "?", count: exceptSessionIds.count).joined(separator: ",")
+        var params: [SQLValue] = Array(exceptSessionIds).map { .int($0) }
+        params.append(.text("应用退出时中断，可续传"))
+        return try db.run("""
+        UPDATE downloads SET status = 'paused', phase = 'idle', error = ?
         WHERE status IN ('downloading','retry_wait')
+        AND session_task_id NOT IN (\(placeholders))
         """)
     }
 
@@ -201,6 +215,7 @@ final class HistoryStore {
                 filePath: text("file_path"),
                 formatID: text("format_id"),
                 thumbnailURL: row["thumbnail_url"] == nil || text("thumbnail_url").isEmpty ? nil : text("thumbnail_url"),
+                downloadURL: text("download_url"),
                 status: TaskStatus(rawValue: text("status")) ?? .failed,
                 phase: TaskPhase(rawValue: text("phase")) ?? .idle,
                 bytesDownloaded: int("bytes_downloaded"),
@@ -235,6 +250,7 @@ final class HistoryStore {
         if let u = task.updatedAt { dict["updatedAt"] = iso.string(from: u) }
         if let c = task.completedAt { dict["completedAt"] = iso.string(from: c) }
         if let t = task.thumbnailURL { dict["thumbnailUrl"] = t }
+        if !task.downloadURL.isEmpty { dict["downloadUrl"] = task.downloadURL }
         return dict
     }
 
@@ -253,6 +269,7 @@ final class HistoryStore {
             filePath: str("filePath"),
             formatID: str("formatId"),
             thumbnailURL: record["thumbnailUrl"] as? String,
+            downloadURL: str("downloadUrl"),
             status: TaskStatus(rawValue: status) ?? .failed,
             phase: status == "completed" ? .done : .idle,
             bytesDownloaded: i64("bytesDownloaded"),

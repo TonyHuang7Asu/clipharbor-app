@@ -1,11 +1,13 @@
 import Foundation
 import CryptoKit
 
-/// iOS 独立下载引擎（Phase 0 原型）。
+/// iOS 独立下载引擎。
 ///
 /// - 使用后台 URLSession：App 进入后台/被挂起后系统继续下载，事件到达时唤回 App。
 /// - 完全不依赖 Windows 后台；WindowsCompanion 只是可选增强（Phase 4）。
 /// - 速度统计来自 didWriteData 的真实字节增量（SpeedMeter）。
+/// - 并发上限 2（与 Windows 端一致）：新任务自动排队，槽位空闲时按加入顺序自动补位。
+/// - cobalt 任务的"原始链接"与"隧道下载链接"分开存储；隧道过期时重试会自动重新解析。
 /// - 已知限制（如实标注）：
 ///   1. URLSession downloadTask 的续传依赖系统 resumeData；没有 resumeData 时从头下载
 ///      （不支持手动 Range 续传，Windows 端引擎支持 Range，两端行为差异已记录在案）。
@@ -13,12 +15,20 @@ import CryptoKit
 final class BackgroundDownloadEngine: NSObject, ObservableObject {
     static let shared = BackgroundDownloadEngine()
 
+    /// 同时活跃的下载任务数（与 Windows 端并发一致）。
+    static let maxConcurrentDownloads = 2
+
     /// taskId → 实时进度（主线程发布）
     @Published private(set) var liveProgress: [String: DownloadProgress] = [:]
+
+    /// 系统在后台事件送达后交给 App 的 completionHandler（AppDelegate 承接）。
+    /// 本会话空闲（urlSessionDidFinishEvents）时必须回调，否则 App 会被系统提前杀死。
+    var pendingBackgroundCompletionHandler: (() -> Void)?
 
     private var session: URLSession!
     private let history: HistoryStore
     private let lock = NSLock()
+    private let pumpLock = NSLock()
     private var meters: [String: SpeedMeter] = [:]
     private var sessionTasks: [Int: URLSessionDownloadTask] = [:]   // session id → task
     private var idMap: [Int: String] = [:]                          // session id → taskId
@@ -45,12 +55,13 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
 
     // MARK: - 对外操作
 
-    /// 添加任务：真实解析 → 去重 → 空间预检 → 入库 → 启动后台下载。
+    /// 添加任务：真实解析 → 去重 → 空间预检 → 入库（排队态）→ 有空闲槽位即启动。
+    /// sourceURL 保存原始链接；downloadURL 保存解析出的时效下载链接（直链任务两者相同）。
     @discardableResult
     func addTask(urlString: String) async throws -> DownloadTask {
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme, ["http", "https"].contains(scheme) else {
-            throw SourceAdapterError.unsupported("请输入合法的 http/https 直链")
+            throw SourceAdapterError.unsupported("请输入合法的 http/https 链接")
         }
         if let existing = try history.findActive(url: url.absoluteString) {
             return existing  // 防重复加入
@@ -81,12 +92,16 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
             destDir: FileStore.mediaDirectory.path,
             bytesTotal: expected
         )
+        task.formatID = format.formatId
+        task.thumbnailURL = info.thumbnailUrl
+        task.downloadURL = info.downloadUrl ?? info.sourceUrl
         try history.upsert(task)
-        try startSessionTask(for: &task)
+        publishSnapshot(task.id)
+        pumpQueue()
         return task
     }
 
-    /// 暂停：本进程存活期间挂起传输（配合 UI 立即生效）。
+    /// 暂停：本进程存活期间挂起传输（配合 UI 立即生效），并让排队任务补位。
     func pause(_ taskId: String) {
         lock.lock()
         let task = sessionTasks.first { idMap[$0.key] == taskId }?.value
@@ -98,9 +113,10 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         ])
         meters[taskId]?.pauseSegment()
         publishSnapshot(taskId)
+        pumpQueue()
     }
 
-    /// 继续：恢复挂起的后台任务。
+    /// 继续：恢复挂起的后台任务（不检查并发槽位：用户显式操作优先）。
     func resume(_ taskId: String) {
         lock.lock()
         let task = sessionTasks.first { idMap[$0.key] == taskId }?.value
@@ -112,11 +128,9 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         ])
         if let task {
             task.resume()
-        } else {
-            // 进程重启后没有可挂起的句柄：从源 URL 重新建立后台任务
-            if var stored = try? history.task(id: taskId), stored.status == .paused {
-                try? startSessionTask(for: &stored)
-            }
+        } else if var stored = try? history.task(id: taskId), stored.status == .paused {
+            // 进程重启后没有可挂起的句柄：用存储的下载链接重建后台任务
+            startSessionTask(for: &stored)
         }
         publishSnapshot(taskId)
     }
@@ -135,9 +149,12 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         ])
         removeMeter(taskId)
         publishSnapshot(taskId)
+        pumpQueue()
     }
 
     /// 重试：仅对已结束任务生效。
+    /// cobalt 任务会先用原始链接**重新解析**（隧道链接有时效，旧链接可能已过期），
+    /// 直链任务直接重建下载。重试后进入排队态，由并发槽位调度启动。
     @discardableResult
     func retry(_ taskId: String) -> Bool {
         guard var task = try? history.task(id: taskId), task.status.isTerminal else { return false }
@@ -146,9 +163,43 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         task.error = ""
         task.bytesDownloaded = 0
         task.completedAt = nil
+        task.retries += 1
         try? history.upsert(task)
-        try? startSessionTask(for: &task)
+        publishSnapshot(taskId)
+        if task.sourceID == "cobalt", let url = URL(string: task.sourceURL) {
+            Task { @MainActor in
+                await self.reResolveTunnel(taskId: taskId, originalURL: url)
+                self.pumpQueue()
+            }
+        } else {
+            pumpQueue()
+        }
         return true
+    }
+
+    /// 用原始链接重新解析 cobalt 隧道（重试路径）。
+    private func reResolveTunnel(taskId: String, originalURL: URL) async {
+        let adapter = SourceAdapters.adapter(for: originalURL)
+        do {
+            let info: MediaInfo
+            if let cobalt = adapter as? CobaltAdapter {
+                info = try await cobalt.resolve(originalURL, quality: DownloadQuality.current)
+            } else {
+                info = try await adapter.resolve(originalURL)
+            }
+            guard var updated = try? history.task(id: taskId) else { return }
+            updated.downloadURL = info.downloadUrl ?? info.sourceUrl
+            if let title = info.title, !title.isEmpty { updated.title = title }
+            updated.error = ""
+            try? history.upsert(updated)
+        } catch {
+            try? history.updateFields(taskId, [
+                "status": .text(TaskStatus.failed.rawValue),
+                "phase": .text(TaskPhase.idle.rawValue),
+                "error": .text("重新解析失败：\(error.localizedDescription)"),
+            ])
+            publishSnapshot(taskId)
+        }
     }
 
     func task(id: String) -> DownloadTask? { try? history.task(id: id) }
@@ -170,8 +221,23 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
 
     // MARK: - 内部
 
+    /// 并发调度：把排队任务按加入顺序填入空闲槽位。
+    private func pumpQueue() {
+        pumpLock.lock(); defer { pumpLock.unlock() }
+        guard let all = try? history.activeTasks() else { return }
+        var running = all.filter { $0.status == .downloading }
+        guard running.count < Self.maxConcurrentDownloads else { return }
+        let queued = all.filter { $0.status == .queued }
+        for var task in queued {
+            guard running.count < Self.maxConcurrentDownloads else { break }
+            startSessionTask(for: &task)
+            running.append(task)
+        }
+    }
+
     private func startSessionTask(for task: inout DownloadTask) throws {
-        guard let url = URL(string: task.sourceURL) else { return }
+        let link = task.downloadURL.isEmpty ? task.sourceURL : task.downloadURL
+        guard let url = URL(string: link) else { return }
         let downloadTask = session.downloadTask(with: url)
         downloadTask.countOfBytesClientExpectsToReceive = max(task.bytesTotal, 0)
         lock.lock()
@@ -185,25 +251,31 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
             "phase": .text(TaskPhase.network.rawValue),
         ])
         downloadTask.resume()
+        publishSnapshot(task.id)
     }
 
-    /// App 被系统唤回时重新关联仍在进行的后台任务。
+    /// App 被系统唤回时重新关联仍在进行的后台任务，然后恢复中断记录并调度队列。
     private func reattachRunningTasks() {
         session.getAllTasks { [weak self] tasks in
             guard let self else { return }
-            lock.lock()
+            var reattached = Set<Int64>()
+            self.lock.lock()
             for case let t as URLSessionDownloadTask in tasks {
-                sessionTasks[t.taskIdentifier] = t
+                self.sessionTasks[t.taskIdentifier] = t
+                reattached.insert(Int64(t.taskIdentifier))
             }
-            lock.unlock()
+            self.lock.unlock()
             // 与数据库中记录的 session_task_id 关联
             if let all = try? self.history.activeTasks() {
-                lock.lock()
+                self.lock.lock()
                 for task in all where task.sessionTaskID >= 0 {
-                    idMap[task.sessionTaskID] = task.id
+                    self.idMap[task.sessionTaskID] = task.id
                 }
-                lock.unlock()
+                self.lock.unlock()
             }
+            // 崩溃/退出恢复：不在本轮 reattach 名单里的 downloading 记录转为暂停态
+            _ = try? self.history.recoverInterrupted(exceptSessionIds: reattached)
+            self.pumpQueue()
         }
     }
 
@@ -240,7 +312,7 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         guard var task = try? history.task(id: taskId) else { return }
         let m = meter(for: taskId)
         let speed = m.currentBps()
-        task.bytesDownloaded = max(task.bytesDownloaded, Int64(m.totalBytes))
+        task.bytesDownloaded = max(task.bytesDownloaded, m.totalBytesCount())
         if speed > 0, task.bytesTotal > task.bytesDownloaded {
             let eta = Double(task.bytesTotal - task.bytesDownloaded) / speed
             let snapshot = DownloadProgress(
@@ -295,6 +367,19 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
                     didFinishDownloadingTo location: URL) {
         guard let taskId = idMap[downloadTask.taskIdentifier],
               let task = try? history.task(id: taskId) else { return }
+        // cobalt 隧道过期防护：隧道失效时服务器可能回 HTML/短文件而非媒体流
+        let mime = (downloadTask.response?.mimeType ?? "").lowercased()
+        if task.sourceID == "cobalt", mime.contains("text/html") {
+            try? history.updateFields(taskId, [
+                "status": .text(TaskStatus.failed.rawValue),
+                "phase": .text(TaskPhase.idle.rawValue),
+                "error": .text("下载链接已过期（隧道约 10 分钟有效），请长按重试，会自动重新解析"),
+            ])
+            removeMeter(taskId)
+            publishSnapshot(taskId)
+            pumpQueue()
+            return
+        }
         let filename = FileStore.sanitizeFilename(
             task.filename.isEmpty ? downloadTask.response?.suggestedFilename ?? "download" : task.filename
         )
@@ -309,6 +394,8 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
                 "error": .text("落盘失败: \(error.localizedDescription)"),
             ])
             removeMeter(taskId)
+            publishSnapshot(taskId)
+            pumpQueue()
             return
         }
         let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
@@ -328,6 +415,7 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
         ])
         removeMeter(taskId)
         publishSnapshot(taskId)
+        pumpQueue()
     }
 
     func urlSession(_ session: URLSession,
@@ -346,13 +434,26 @@ extension BackgroundDownloadEngine: URLSessionDownloadDelegate {
                 "error": .text("网络中断，已保存续传数据"),
             ])
         } else {
+            var message = error.localizedDescription
+            if let t = try? history.task(id: taskId), t.sourceID == "cobalt" {
+                message += "（cobalt 隧道链接有时效，长按重试可自动重新解析）"
+            }
             try? history.updateFields(taskId, [
                 "status": .text(TaskStatus.failed.rawValue),
                 "phase": .text(TaskPhase.idle.rawValue),
-                "error": .text(error.localizedDescription),
+                "error": .text(message),
             ])
         }
         meters[taskId]?.pauseSegment()
         publishSnapshot(taskId)
+        pumpQueue()
+    }
+
+    /// 后台事件全部送达后通知系统（否则 App 可能被提前终止）。
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingBackgroundCompletionHandler?()
+            self?.pendingBackgroundCompletionHandler = nil
+        }
     }
 }

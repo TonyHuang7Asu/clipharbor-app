@@ -16,28 +16,56 @@ struct RootView: View {
     }
 }
 
-/// 下载首页：粘贴链接 → 解析 → 开始独立下载。
+/// 下载首页：粘贴链接 → 选清晰度 → 解析 → 加入下载（自动排队，并发 2 依次下载）。
 struct HomeView: View {
     @ObservedObject private var engine = BackgroundDownloadEngine.shared
     @State private var urlString = ""
     @State private var errorMessage: String?
     @State private var isWorking = false
+    @AppStorage(DownloadQuality.storageKey) private var qualityRaw = DownloadQuality.best.rawValue
+
+    private var quality: DownloadQuality { DownloadQuality(rawValue: qualityRaw) ?? .best }
 
     var body: some View {
         NavigationStack {
             List {
                 Section("添加链接") {
-                    TextField("https://example.com/video.mp4", text: $urlString)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    HStack(spacing: 8) {
+                        TextField("粘贴 YouTube / B站 / 视频直链", text: $urlString)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if !urlString.isEmpty {
+                            Button {
+                                urlString = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        Button {
+                            if let text = UIPasteboard.general.string {
+                                urlString = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                        } label: {
+                            Text("粘贴")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    Picker("清晰度", selection: $qualityRaw) {
+                        ForEach(DownloadQuality.allCases) { q in
+                            Text(q.shortLabel).tag(q.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                     Button {
                         start()
                     } label: {
                         if isWorking {
                             ProgressView()
                         } else {
-                            Label("解析并下载", systemImage: "arrow.down.to.line.compact")
+                            Label("解析并加入下载（\(quality.label)）", systemImage: "arrow.down.to.line.compact")
                         }
                     }
                     .disabled(urlString.isEmpty || isWorking)
@@ -69,7 +97,7 @@ struct HomeView: View {
         Task { @MainActor in
             do {
                 _ = try await BackgroundDownloadEngine.shared.addTask(urlString: input)
-                urlString = ""
+                urlString = ""   // 解析成功自动清空，方便连续粘贴（仿 x-video-downloader）
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -78,7 +106,7 @@ struct HomeView: View {
     }
 }
 
-/// 任务卡片：封面位、标题、进度条、真实速度、剩余时间、状态、暂停/继续。
+/// 任务卡片：缩略图、标题、进度条、真实速度、剩余时间、状态、暂停/继续。
 struct TaskCardView: View {
     let task: DownloadTask
     let progress: DownloadProgress?
@@ -95,10 +123,7 @@ struct TaskCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: "play.square.stack")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                ThumbnailView(url: task.thumbnailURL)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(task.title.isEmpty ? task.filename : task.title)
                         .font(.subheadline.weight(.medium))
@@ -159,7 +184,39 @@ struct TaskCardView: View {
     }
 }
 
-/// 下载队列页。
+/// 缩略图（YouTube 由视频 ID 直拼 i.ytimg.com；加载失败显示占位图标）。
+struct ThumbnailView: View {
+    let url: String?
+
+    var body: some View {
+        Group {
+            if let url, let remote = URL(string: url) {
+                AsyncImage(url: remote) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(width: 64, height: 40)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "play.square.stack")
+            .font(.title3)
+            .frame(width: 64, height: 40)
+            .foregroundStyle(.secondary)
+    }
+}
+
+/// 下载队列页：滑动可取消/重试。
 struct QueueView: View {
     @ObservedObject private var engine = BackgroundDownloadEngine.shared
     @State private var tick = 0
@@ -167,12 +224,22 @@ struct QueueView: View {
     var body: some View {
         NavigationStack {
             List {
+                if engine.activeTasks().isEmpty {
+                    Text("队列为空")
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(engine.activeTasks()) { task in
                     TaskCardView(task: task, progress: engine.liveProgress[task.id])
-                        .swipeActions {
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 BackgroundDownloadEngine.shared.cancel(task.id)
                             } label: { Label("取消", systemImage: "xmark") }
+                            if task.status.isTerminal || task.status == .failed {
+                                Button {
+                                    BackgroundDownloadEngine.shared.retry(task.id)
+                                } label: { Label("重试", systemImage: "arrow.clockwise") }
+                                .tint(.blue)
+                            }
                         }
                 }
             }
@@ -182,7 +249,7 @@ struct QueueView: View {
     }
 }
 
-/// 历史记录页：搜索 + 文件存在性 + 详情。
+/// 历史记录页：缩略图 + 搜索 + 文件存在性 + 复制链接/分享文件。
 struct HistoryView: View {
     @ObservedObject private var engine = BackgroundDownloadEngine.shared
     @State private var query = ""
@@ -191,20 +258,26 @@ struct HistoryView: View {
         NavigationStack {
             List {
                 ForEach(engine.searchHistory(query)) { task in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(task.title.isEmpty ? task.filename : task.title)
-                            .font(.subheadline)
-                        HStack {
-                            Text(task.status == .completed ? "✓ \(formatBytes(task.bytesTotal))" : task.status.rawValue)
-                            Text("·")
-                            Text("平均 \(formatSpeed(task.avgSpeedBps))")
-                            Text("·")
-                            Image(systemName: BackgroundDownloadEngine.shared.fileExists(task) ? "checkmark.seal" : "questionmark.folder")
-                            Text(BackgroundDownloadEngine.shared.fileExists(task) ? "文件存在" : "文件缺失")
+                    HistoryRowView(task: task, fileExists: engine.fileExists(task))
+                        .contextMenu {
+                            Button {
+                                UIPasteboard.general.string = task.sourceURL
+                            } label: {
+                                Label("复制源链接", systemImage: "doc.on.doc")
+                            }
+                            if task.status == .completed, engine.fileExists(task) {
+                                ShareLink(item: URL(fileURLWithPath: task.filePath)) {
+                                    Label("分享 / 存到文件 App", systemImage: "square.and.arrow.up")
+                                }
+                            }
+                            if task.status.isTerminal {
+                                Button {
+                                    BackgroundDownloadEngine.shared.retry(task.id)
+                                } label: {
+                                    Label("重新下载（重试）", systemImage: "arrow.clockwise")
+                                }
+                            }
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
                 }
             }
             .searchable(text: $query, prompt: "搜索标题 / URL / 文件名")
@@ -214,13 +287,52 @@ struct HistoryView: View {
     }
 }
 
-/// 设置页：cobalt 地址（YouTube 解析）、备份导出/导入，其余功能随阶段开放。
+/// 历史行：缩略图、标题、大小、时间、平均速度、文件状态。
+struct HistoryRowView: View {
+    let task: DownloadTask
+    let fileExists: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ThumbnailView(url: task.thumbnailURL)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(task.title.isEmpty ? task.filename : task.title)
+                    .font(.subheadline)
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(task.status == .completed ? "✓ \(formatBytes(task.bytesTotal))" : task.status.rawValue)
+                    if let done = task.completedAt {
+                        Text("·")
+                        Text(done.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    if task.avgSpeedBps > 0 {
+                        Text("·")
+                        Text("平均 \(formatSpeed(task.avgSpeedBps))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: fileExists ? "checkmark.seal" : "questionmark.folder")
+                    Text(fileExists ? "文件存在" : "文件缺失")
+                }
+                .font(.caption2)
+                .foregroundStyle(fileExists ? .secondary : .orange)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// 设置页：cobalt 地址（YouTube 解析）、连接测试、历史备份，其余功能随阶段开放。
 struct SettingsView: View {
     @AppStorage(CobaltAdapter.storageKey) private var cobaltURL: String = CobaltAdapter.defaultURL
     @State private var exportDoc = ClipHarborJSONDocument(data: Data())
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var message: String?
+    @State private var isTesting = false
 
     var body: some View {
         NavigationStack {
@@ -230,6 +342,16 @@ struct SettingsView: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    Button {
+                        testConnection()
+                    } label: {
+                        if isTesting {
+                            ProgressView()
+                        } else {
+                            Label("测试连接", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                    }
+                    .disabled(isTesting || cobaltURL.isEmpty)
                     Text("填入电脑上 cobalt 服务的地址后，App 内粘贴 YouTube/B站 链接即可下载"
                          + "（解析在电脑端完成，手机负责真实下载；电脑需在线且同一局域网）。"
                          + "留空 = YouTube 视为未支持。")
@@ -250,6 +372,7 @@ struct SettingsView: View {
                     LabeledContent("协议版本", value: "clipharbor 1.0")
                     LabeledContent("独立模式", value: "直链本地引擎已启用")
                     LabeledContent("YouTube 解析", value: cobaltURL.isEmpty ? "未配置（未支持）" : "经电脑 cobalt")
+                    LabeledContent("并发下载", value: "\(BackgroundDownloadEngine.maxConcurrentDownloads) 个任务")
                 }
             }
             .navigationTitle("设置")
@@ -270,6 +393,32 @@ struct SettingsView: View {
                     }
                 case .failure: message = "导入已取消"
                 }
+            }
+        }
+    }
+
+    /// 探测 cobalt 服务可达性（GET 根路径，短超时）。
+    private func testConnection() {
+        isTesting = true
+        message = nil
+        let raw = cobaltURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { @MainActor in
+            defer { isTesting = false }
+            guard let url = URL(string: raw) else {
+                message = "地址格式不正确"
+                return
+            }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 8
+            do {
+                let (_, response) = try await URLSession.shared.data(from: request)
+                if let http = response as? HTTPURLResponse {
+                    message = "连接成功：HTTP \(http.statusCode)（服务在线）"
+                } else {
+                    message = "连接成功（非 HTTP 响应）"
+                }
+            } catch {
+                message = "连接失败：\(error.localizedDescription)。请确认电脑在线、地址正确、手机与其同一局域网。"
             }
         }
     }

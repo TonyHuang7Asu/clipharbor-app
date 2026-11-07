@@ -58,6 +58,12 @@ final class SpeedMeter {
         return peakBps
     }
 
+    /// 累计真实字节数（引擎快照与测试共用）。
+    func totalBytesCount() -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return totalBytes
+    }
+
     private func windowSpeed(_ now: Double) -> Double {
         let cutoff = now - windowSeconds
         while let first = samples.first, first.at < cutoff { samples.removeFirst() }

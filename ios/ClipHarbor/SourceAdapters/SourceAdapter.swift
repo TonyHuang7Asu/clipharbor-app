@@ -11,6 +11,9 @@ struct MediaInfo: Codable {
     var isPlaylist: Bool
     var entries: [String]
     var formats: [FormatInfo]
+    /// 实际下载地址（cobalt 等解析器返回的时效链接）；nil 时用 sourceUrl 下载。
+    /// sourceUrl 保持原始链接（去重/历史展示用），二者分离使重试可重新解析。
+    var downloadUrl: String? = nil
 
     struct FormatInfo: Codable {
         var formatId: String
@@ -71,9 +74,7 @@ struct DirectHTTPAdapter: SourceAdapter {
         } else if http.statusCode == 200 {
             total = (try? Int64(http.value(forHTTPHeaderField: "Content-Length") ?? "")) ?? 0
         }
-        let filename = responseFilename(response)
-            ?? url.lastPathComponent
-            ?? "download"
+        let filename = responseFilename(response) ?? url.lastPathComponent
         let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").split(separator: ";").first.map(String.init) ?? ""
         return MediaInfo(
             sourceUrl: response.url?.absoluteString ?? url.absoluteString,
