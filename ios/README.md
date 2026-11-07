@@ -7,8 +7,15 @@ iPhone 原生下载器（SwiftUI + 后台 URLSession + SQLite）。
 
 - ✅ Phase 0 源码与文档完成：独立下载引擎、SQLite 历史、最小 SwiftUI 界面、
   备份导入导出、YouTube 未支持声明、构建/签名文档。
-- ⚠️ **未在 macOS 上编译，未真机验证**（当前开发机为 Windows）。
-  构建路径见 `Docs/BUILD-AND-SIGNING.md`；验收清单见 `Docs/PHASE0-FEASIBILITY.md`。
+- ✅ **2026-11-07（Mac 接手）：CI 云构建编译通过**（GitHub Actions，
+  Xcode 16.4 / iOS 18.5 SDK），**11 项单元测试全部通过**
+  （HistoryStore 7 + SpeedMeter 4），产出未签名 IPA（`ios/build/ClipHarbor-unsigned.ipa`
+  与 Actions 产物 `ClipHarbor-unsigned-ipa`）。仓库：`TonyHuang7Asu/clipharbor-app`。
+- ✅ 本轮新增（仿 x-video-downloader 体验）：清晰度五档选择（最佳/1080/720/480/MP3）、
+  YouTube 缩略图（i.ytimg.com 直拼）、并发 2 自动排队、cobalt 隧道过期自动重解析重试、
+  历史/队列分享与复制链接、cobalt 连接测试、ATS 局域网放行（NSAllowsLocalNetworking）。
+- ⚠️ **未真机验证**：iPhone 侧下载/后台/持久化等 7 项验收待做（见 `Docs/PHASE0-FEASIBILITY.md` 第 5 节）。
+- ⚠️ 真机 YouTube 下载依赖：电脑 cobalt 容器在线 + 其网络可达 googlevideo（需代理，本网络实测封锁）。
 
 ## 文档
 

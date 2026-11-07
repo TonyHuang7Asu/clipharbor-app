@@ -39,7 +39,7 @@ ClipHarbor/
 | 端 | 状态 | 已验证 | 待完成 |
 | --- | --- | --- | --- |
 | Windows | ✅ Phase 1–4 完成 | 90 项测试真实网络通过 | Phase 6 安装包（你已说不优先） |
-| iOS | 🚧 源码+CI 就绪 | cobalt 解析已实测；**Swift 未编译** | ①云构建/本 Mac 构建出 IPA（预期首轮编译报错→贴日志迭代）②真机验收 7 项 ③SideStore 排障 |
+| iOS | ✅ CI 编译通过（2026-11-07 Mac 接手，仓库 `TonyHuang7Asu/clipharbor-app`） | Swift 编译零报错 + 11 项单元测试通过 + 未签名 IPA 已产出 | ①真机验收 7 项 ②SideStore 安装与排障 ③电脑 cobalt 容器恢复在线+代理（本网络封锁 googlevideo） |
 | Android | 🚧 A1 源码完成 | **未编译未验证** | Android Studio 打开 `android/` → 首次编译核对 4 处 API（android/README.md）→ 真机测试 |
 
 ## 3. 已完成工作与实测结果（4 轮迭代）
