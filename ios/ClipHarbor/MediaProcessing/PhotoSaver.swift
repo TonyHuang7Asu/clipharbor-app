@@ -21,7 +21,7 @@ enum PhotoSaver {
             throw SourceAdapterError.unsupported("音频文件无法存入相册，请长按用「分享」存到文件 App / 其他应用")
         }
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromVideo(at: url)
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
         }
         return "已存入相册：\(url.lastPathComponent)"
     }
