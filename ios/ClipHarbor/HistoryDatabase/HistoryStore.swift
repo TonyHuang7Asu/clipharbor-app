@@ -169,8 +169,17 @@ final class HistoryStore {
 
     /// 只导入已结束的历史记录；已存在 id 跳过，绝不覆盖本地数据。
     func importJSON(_ data: Data) throws -> (imported: Int, skipped: Int) {
-        guard let wrapper = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let records = (wrapper["records"] as? [[String: Any]]) ?? (wrapper as? [[String: Any]]) else {
+        let parsed = try JSONSerialization.jsonObject(with: data)
+        let records: [[String: Any]]
+        if let wrapper = parsed as? [String: Any] {
+            guard let r = wrapper["records"] as? [[String: Any]] else {
+                throw NSError(domain: "ClipHarbor.History", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "无法识别的历史 JSON"])
+            }
+            records = r
+        } else if let r = parsed as? [[String: Any]] {
+            records = r   // 兼容裸数组导出
+        } else {
             throw NSError(domain: "ClipHarbor.History", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "无法识别的历史 JSON"])
         }

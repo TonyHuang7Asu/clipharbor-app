@@ -53,7 +53,8 @@ final class SpeedMeter {
         return Double(totalBytes) / active
     }
 
-    func peakBps() -> Double {
+    /// 峰值速率（方法名带后缀，避免与同名存储属性冲突）。
+    func peakSpeedBps() -> Double {
         lock.lock(); defer { lock.unlock() }
         return peakBps
     }

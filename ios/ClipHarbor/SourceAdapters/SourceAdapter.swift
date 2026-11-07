@@ -60,7 +60,7 @@ struct DirectHTTPAdapter: SourceAdapter {
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
                          forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
-        let (_, response) = try await URLSession.shared.data(from: request, delegate: nil)
+        let (_, response) = try await URLSession.shared.data(for: request, delegate: nil)
         guard let http = response as? HTTPURLResponse else {
             throw SourceAdapterError.unsupported("非 HTTP 响应")
         }

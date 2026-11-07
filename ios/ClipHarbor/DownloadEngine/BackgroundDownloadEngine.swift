@@ -130,7 +130,7 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
             task.resume()
         } else if var stored = try? history.task(id: taskId), stored.status == .paused {
             // 进程重启后没有可挂起的句柄：用存储的下载链接重建后台任务
-            startSessionTask(for: &stored)
+            try? startSessionTask(for: &stored)
         }
         publishSnapshot(taskId)
     }
@@ -230,7 +230,7 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         let queued = all.filter { $0.status == .queued }
         for var task in queued {
             guard running.count < Self.maxConcurrentDownloads else { break }
-            startSessionTask(for: &task)
+            try? startSessionTask(for: &task)
             running.append(task)
         }
     }
@@ -304,7 +304,7 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
         try? history.updateFields(taskId, [
             "bytes_downloaded": .int(bytes),
             "avg_speed_bps": .real(meter(for: taskId).averageBps()),
-            "peak_speed_bps": .real(meter(for: taskId).peakBps()),
+            "peak_speed_bps": .real(meter(for: taskId).peakSpeedBps()),
         ])
     }
 
@@ -318,7 +318,7 @@ final class BackgroundDownloadEngine: NSObject, ObservableObject {
             let snapshot = DownloadProgress(
                 taskId: taskId, status: task.status, phase: task.phase,
                 bytesDownloaded: task.bytesDownloaded, bytesTotal: task.bytesTotal,
-                speedBps: speed, avgSpeedBps: m.averageBps(), peakSpeedBps: m.peakBps(),
+                speedBps: speed, avgSpeedBps: m.averageBps(), peakSpeedBps: m.peakSpeedBps(),
                 etaSeconds: eta, error: task.error, updatedAt: Date()
             )
             DispatchQueue.main.async { self.liveProgress[taskId] = snapshot }

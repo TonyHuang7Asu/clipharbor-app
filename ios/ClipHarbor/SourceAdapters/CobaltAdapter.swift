@@ -128,7 +128,7 @@ struct CobaltAdapter: SourceAdapter {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(from: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SourceAdapterError.unsupported("cobalt 返回了非 HTTP 响应")
         }

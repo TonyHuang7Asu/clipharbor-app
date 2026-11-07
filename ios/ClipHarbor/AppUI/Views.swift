@@ -317,7 +317,7 @@ struct HistoryRowView: View {
                     Text(fileExists ? "文件存在" : "文件缺失")
                 }
                 .font(.caption2)
-                .foregroundStyle(fileExists ? .secondary : .orange)
+                .foregroundStyle(fileExists ? Color.secondary : Color.orange)
             }
             Spacer()
         }
@@ -411,7 +411,7 @@ struct SettingsView: View {
             var request = URLRequest(url: url)
             request.timeoutInterval = 8
             do {
-                let (_, response) = try await URLSession.shared.data(from: request)
+                let (_, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse {
                     message = "连接成功：HTTP \(http.statusCode)（服务在线）"
                 } else {

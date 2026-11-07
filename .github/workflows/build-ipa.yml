@@ -24,7 +24,7 @@ jobs:
         continue-on-error: true
         run: |
           SIM=$(xcrun simctl list devices available |
-                grep -m1 -oE 'iPhone [0-9]+ ' | tr -d ' ' || true)
+                grep -m1 -oE '^ *iPhone [0-9]+ \(' | sed -E 's/^ *//; s/ \($//' || true)
           echo "Simulator: $SIM"
           xcodebuild test \
             -project ClipHarbor.xcodeproj -scheme ClipHarbor \

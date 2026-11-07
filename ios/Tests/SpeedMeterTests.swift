@@ -28,8 +28,8 @@ final class SpeedMeterTests: XCTestCase {
         let meter = SpeedMeter(windowSeconds: 5)
         meter.onBytes(Int64(10 * 1024 * 1024))  // 单个 10MB 事件
         // 窗口跨度 < 0.25s 时按 0.25s 下限折算：10MB/0.25s = 40MB/s，而非 10MB/0s 的无穷大
-        XCTAssertLessThanOrEqual(meter.peakBps(), 40 * 1024 * 1024 * 1.01)
-        XCTAssertGreaterThan(meter.peakBps(), 0)
+        XCTAssertLessThanOrEqual(meter.peakSpeedBps(), 40 * 1024 * 1024 * 1.01)
+        XCTAssertGreaterThan(meter.peakSpeedBps(), 0)
     }
 
     func testIdleSpeedIsZero() {
